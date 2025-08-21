@@ -3,6 +3,7 @@ import random
 import os
 import json
 import time
+import re
 import shared
 import modules.config
 import fooocus_version
@@ -23,6 +24,7 @@ from modules.private_logger import get_current_html_path
 from modules.ui_gradio_extensions import reload_javascript
 from modules.auth import auth_enabled, check_auth
 from modules.util import is_json
+from modules.model_loader import load_file_from_url
 
 def get_task(*args):
     args = list(args)
@@ -685,6 +687,10 @@ with shared.gradio_root:
 
                 with gr.Row():
                     refresh_files = gr.Button(label='Refresh', value='\U0001f504 Refresh All Files', variant='secondary', elem_classes='refresh_button')
+                with gr.Row():
+                    civitai_link = gr.Textbox(label='CivitAI Link', placeholder='https://civitai.com/api/download/models/12345', scale=5)
+                    civitai_add = gr.Button('Add Model', scale=1)
+                civitai_status = gr.Markdown()
             with gr.Tab(label='Advanced'):
                 guidance_scale = gr.Slider(label='Guidance Scale', minimum=1.0, maximum=30.0, step=0.01,
                                            value=modules.config.default_cfg_scale,
@@ -885,6 +891,30 @@ with shared.gradio_root:
                     refresh_files_output += [preset_selection]
                 refresh_files.click(refresh_files_clicked, [], refresh_files_output + lora_ctrls,
                                     queue=False, show_progress=False)
+
+                def civitai_add_clicked(link):
+                    try:
+                        if not link:
+                            raise ValueError('No link provided')
+                        if 'modelVersionId=' in link and '/api/download/models/' not in link:
+                            mv = re.search(r'modelVersionId=(\d+)', link)
+                            if mv:
+                                link = f"https://civitai.com/api/download/models/{mv.group(1)}"
+                        filename = os.path.basename(link.split('?')[0])
+                        if not filename:
+                            filename = f"model_{int(time.time())}.safetensors"
+                        dest = modules.config.paths_checkpoints[0]
+                        if 'lora' in filename.lower():
+                            dest = modules.config.paths_loras[0]
+                        load_file_from_url(url=link, model_dir=dest, file_name=filename)
+                        status = f'Downloaded {filename}'
+                    except Exception as e:
+                        status = f'Download failed: {e}'
+                    return [status] + refresh_files_clicked()
+
+                civitai_add.click(civitai_add_clicked, inputs=[civitai_link],
+                                  outputs=[civitai_status] + refresh_files_output + lora_ctrls,
+                                  queue=False, show_progress=False)
 
         state_is_generating = gr.State(False)
 
